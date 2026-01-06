@@ -62,27 +62,44 @@ end_date = st.date_input(
     max_value=date.today()
 )
 
-# -------------------- DATA LOADING --------------------
+# -------------------- DATA LOADING (ROBUST) --------------------
 @st.cache_data(show_spinner=False)
 def load_data(symbol, start_date, end_date):
-    data = yf.download(symbol, start=start_date, end=end_date)
-    data.reset_index(inplace=True)
-    return data
+    try:
+        data = yf.download(
+            symbol,
+            start=start_date,
+            end=end_date,
+            progress=False,
+            auto_adjust=False,
+            threads=False
+        )
+        data.reset_index(inplace=True)
+        return data
+    except Exception:
+        return pd.DataFrame()
 
 data = load_data(symbol, start_date, end_date)
 
 # -------------------- FIX #1: FLATTEN MULTIINDEX COLUMNS --------------------
 # (CRITICAL for Prophet & pandas numeric operations)
-if isinstance(data.columns, pd.MultiIndex):
+if not data.empty and isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(0)
 
-# -------------------- VALIDATION --------------------
-if data.empty:
+# -------------------- VALIDATION & ERROR HANDLING --------------------
+if data.empty or "Date" not in data.columns:
     st.error(
-        "No data available for the selected date range. "
-        "Please choose a valid historical period."
+        " Failed to fetch data from Yahoo Finance.\n\n"
+        "This is usually a temporary issue caused by API rate limits.\n\n"
+        "Please try one of the following:\n"
+        "- Refresh the page\n"
+        "- Change the date range\n"
+        "- Try again after some time"
     )
     st.stop()
+
+# -------------------- TIMEZONE NORMALIZATION --------------------
+data["Date"] = pd.to_datetime(data["Date"], utc=True).dt.tz_localize(None)
 
 st.success(
     f"Loaded {len(data)} daily records for {crypto_name} "
@@ -92,8 +109,6 @@ st.success(
 # -------------------- PREVIEW --------------------
 with st.expander("View Sample Data"):
     st.dataframe(data.head(100), use_container_width=True)
-
-
 
 # -------------------- PREPROCESSING & EDA --------------------
 st.header("2. Data Preprocessing & Exploratory Data Analysis")
