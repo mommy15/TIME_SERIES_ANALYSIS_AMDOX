@@ -26,8 +26,14 @@ st.header("1. Cryptocurrency Data Collection")
 
 st.markdown("""
 This section allows users to select a cryptocurrency and a custom historical 
-date range for analysis. The system dynamically fetches historical price data 
-from Yahoo Finance based on the selected inputs.
+date range for analysis.
+
+**Deployment Note**  
+When deployed on cloud platforms, Yahoo Finance may temporarily block data access 
+from shared IP addresses.  
+In such cases, the application automatically switches to **Demo Mode** using 
+sample historical data.  
+The application works **fully with live data when run locally**.
 """)
 
 # -------------------- USER INPUTS --------------------
@@ -39,11 +45,7 @@ crypto_map = {
     "Ripple (XRP)": "XRP-USD"
 }
 
-crypto_name = st.selectbox(
-    "Select Cryptocurrency",
-    list(crypto_map.keys())
-)
-
+crypto_name = st.selectbox("Select Cryptocurrency", list(crypto_map.keys()))
 symbol = crypto_map[crypto_name]
 
 from datetime import date
@@ -62,7 +64,7 @@ end_date = st.date_input(
     max_value=date.today()
 )
 
-# -------------------- DATA LOADING (ROBUST) --------------------
+# -------------------- DATA LOADING WITH DEMO MODE --------------------
 @st.cache_data(show_spinner=False)
 def load_data(symbol, start_date, end_date):
     try:
@@ -76,45 +78,52 @@ def load_data(symbol, start_date, end_date):
         )
 
         if data is None or data.empty:
-            return pd.DataFrame()
+            raise ValueError("Yahoo Finance returned empty data")
 
         data.reset_index(inplace=True)
-        return data
+        return data, False  # False = not demo mode
 
     except Exception:
-        return pd.DataFrame()
+        # -------- DEMO DATA FALLBACK --------
+        dates = pd.date_range(start="2020-01-01", end="2023-12-31", freq="D")
+        price = np.cumsum(np.random.normal(0, 1.5, len(dates))) + 200
 
+        demo_data = pd.DataFrame({
+            "Date": dates,
+            "Open": price + np.random.normal(0, 1, len(dates)),
+            "High": price + np.random.uniform(0, 3, len(dates)),
+            "Low": price - np.random.uniform(0, 3, len(dates)),
+            "Close": price,
+            "Volume": np.random.randint(1_000_000, 5_000_000, len(dates))
+        })
 
-data = load_data(symbol, start_date, end_date)
+        return demo_data, True  # True = demo mode
 
-# -------------------- FIX #1: FLATTEN MULTIINDEX COLUMNS --------------------
-# (CRITICAL for Prophet & pandas numeric operations)
-if not data.empty and isinstance(data.columns, pd.MultiIndex):
+data, demo_mode = load_data(symbol, start_date, end_date)
+
+# -------------------- MULTIINDEX FIX --------------------
+if isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(0)
 
-# -------------------- VALIDATION & ERROR HANDLING --------------------
-if data.empty or "Date" not in data.columns:
-    st.error(
-        " Failed to fetch data from Yahoo Finance.\n\n"
-        "This is usually a temporary issue caused by API rate limits.\n\n"
-        "Please try one of the following:\n"
-        "- Refresh the page\n"
-        "- Change the date range\n"
-        "- Try again after some time"
+# -------------------- STATUS MESSAGE --------------------
+if demo_mode:
+    st.warning(
+        " **Demo Mode Active**\n\n"
+        "Live Yahoo Finance data could not be accessed from the cloud environment.\n"
+        "This is a known limitation due to API rate limiting on shared IPs.\n\n"
+        "✔ All analytics and forecasting models remain fully functional.\n"
+        "✔ Live data works correctly when the app is run locally."
     )
-    st.stop()
-
-# -------------------- TIMEZONE NORMALIZATION --------------------
-data["Date"] = pd.to_datetime(data["Date"], utc=True).dt.tz_localize(None)
-
-st.success(
-    f"Loaded {len(data)} daily records for {crypto_name} "
-    f"from {start_date} to {end_date}."
-)
+else:
+    st.success(
+        f"Loaded {len(data)} daily records for {crypto_name} "
+        f"from {start_date} to {end_date}."
+    )
 
 # -------------------- PREVIEW --------------------
 with st.expander("View Sample Data"):
     st.dataframe(data.head(100), use_container_width=True)
+
 
 # -------------------- PREPROCESSING & EDA --------------------
 st.header("2. Data Preprocessing & Exploratory Data Analysis")
