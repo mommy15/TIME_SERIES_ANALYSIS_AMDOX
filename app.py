@@ -74,10 +74,16 @@ def load_data(symbol, start_date, end_date):
             auto_adjust=False,
             threads=False
         )
+
+        if data is None or data.empty:
+            return pd.DataFrame()
+
         data.reset_index(inplace=True)
         return data
+
     except Exception:
         return pd.DataFrame()
+
 
 data = load_data(symbol, start_date, end_date)
 
